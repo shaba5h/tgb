@@ -34,7 +34,7 @@ func Not(filter Filter) Filter {
 
 func Message() Filter {
 	return func(ctx *Context) bool {
-		return ctx.Update.Message != nil
+		return ctx.Message() != nil
 	}
 }
 
@@ -42,7 +42,7 @@ func Text(text string) Filter {
 	return And(
 		Message(),
 		func(ctx *Context) bool {
-			return ctx.Update.Message.Text == text
+			return ctx.Message().Text == text
 		},
 	)
 }
@@ -51,7 +51,7 @@ func TextContains(text string) Filter {
 	return And(
 		Message(),
 		func(ctx *Context) bool {
-			return strings.Contains(ctx.Update.Message.Text, text)
+			return strings.Contains(ctx.Message().Text, text)
 		},
 	)
 }
@@ -60,7 +60,7 @@ func TextStartsWith(text string) Filter {
 	return And(
 		Message(),
 		func(ctx *Context) bool {
-			return strings.HasPrefix(ctx.Update.Message.Text, text)
+			return strings.HasPrefix(ctx.Message().Text, text)
 		},
 	)
 }
@@ -74,6 +74,6 @@ func Command(command string) Filter {
 
 func CallbackQuery() Filter {
 	return func(ctx *Context) bool {
-		return ctx.Update.CallbackQuery != nil
+		return ctx.CallbackQuery() != nil
 	}
 }
