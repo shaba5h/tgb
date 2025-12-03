@@ -2,6 +2,7 @@ package tgb
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/go-telegram/bot"
 	"github.com/go-telegram/bot/models"
@@ -71,4 +72,71 @@ func (c *Context) User() *models.User {
 		return &c.CallbackQuery().From
 	}
 	return nil
+}
+
+func (c *Context) Send(text string, opts ...*bot.SendMessageParams) (*models.Message, error) {
+	var params *bot.SendMessageParams
+	if len(opts) > 0 && opts[0] != nil {
+		params = opts[0]
+	} else {
+		params = &bot.SendMessageParams{}
+	}
+
+	params.Text = text
+
+	if params.ChatID == nil {
+		if chat := c.Chat(); chat != nil {
+			params.ChatID = chat.ID
+		} else {
+			return nil, fmt.Errorf("context has no chat_id")
+		}
+	}
+
+	return c.bot.SendMessage(c.ctx, params)
+}
+
+func (c *Context) Reply(text string, opts ...*bot.SendMessageParams) (*models.Message, error) {
+	var params *bot.SendMessageParams
+	if len(opts) > 0 && opts[0] != nil {
+		params = opts[0]
+	} else {
+		params = &bot.SendMessageParams{}
+	}
+
+	params.Text = text
+
+	if params.ChatID == nil {
+		if chat := c.Chat(); chat != nil {
+			params.ChatID = chat.ID
+		} else {
+			return nil, fmt.Errorf("context has no chat_id")
+		}
+	}
+
+	if params.ReplyParameters == nil && c.Message() != nil {
+		params.ReplyParameters = &models.ReplyParameters{
+			MessageID: c.Message().ID,
+		}
+	}
+
+	return c.bot.SendMessage(c.ctx, params)
+}
+
+func (c *Context) Answer(opts ...*bot.AnswerCallbackQueryParams) (bool, error) {
+	var params *bot.AnswerCallbackQueryParams
+	if len(opts) > 0 && opts[0] != nil {
+		params = opts[0]
+	} else {
+		params = &bot.AnswerCallbackQueryParams{}
+	}
+
+	if params.CallbackQueryID == "" {
+		if cb := c.CallbackQuery(); cb != nil {
+			params.CallbackQueryID = cb.ID
+		} else {
+			return false, fmt.Errorf("context has no callback_query_id")
+		}
+	}
+
+	return c.bot.AnswerCallbackQuery(c.ctx, params)
 }
