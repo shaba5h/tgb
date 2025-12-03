@@ -10,6 +10,8 @@ import (
 
 type Handler func(ctx *Context) error
 
+type ErrorHandler func(ctx *Context, err error)
+
 type route struct {
 	filter  Filter
 	handler Handler
@@ -23,14 +25,33 @@ func newRoute(filter Filter, handler Handler) route {
 }
 
 type Router struct {
-	routes      []route
-	middlewares Middlewares
+	routes       []route
+	middlewares  Middlewares
+	errorHandler ErrorHandler
 }
 
-func NewRouter() *Router {
+type RouterOptions struct {
+	errorHandler ErrorHandler
+}
+type RouterOption func(*RouterOptions)
+
+func WithErrorHandler(handler ErrorHandler) RouterOption {
+	return func(r *RouterOptions) {
+		r.errorHandler = handler
+	}
+}
+
+func NewRouter(options ...RouterOption) *Router {
+	opts := &RouterOptions{}
+
+	for _, option := range options {
+		option(opts)
+	}
+
 	return &Router{
-		routes:      make([]route, 0),
-		middlewares: make(Middlewares, 0),
+		routes:       make([]route, 0),
+		middlewares:  make(Middlewares, 0),
+		errorHandler: opts.errorHandler,
 	}
 }
 
@@ -50,8 +71,11 @@ func (r *Router) Handler(ctx context.Context, bot *bot.Bot, update *models.Updat
 	for _, route := range r.routes {
 		if route.filter(c) {
 			if err := route.handler(c); err != nil {
-				return
+				if r.errorHandler != nil {
+					r.errorHandler(c, err)
+				}
 			}
+			return
 		}
 	}
 }
