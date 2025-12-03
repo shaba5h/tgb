@@ -1,45 +1,101 @@
 package tgb
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"sync"
+	"time"
 )
 
 type SessionStore interface {
 	Get(ctx context.Context, key string) ([]byte, error)
-	Set(ctx context.Context, key string, value []byte) error
+	Set(ctx context.Context, key string, value []byte, ttl time.Duration) error
+	Delete(ctx context.Context, key string) error
 }
 
 var ErrSessionNotFound = errors.New("session not found")
 
 type sessionKey struct{}
 
-type MemorySessionStore struct {
-	store sync.Map
+type memorySessionStoreItem struct {
+	value     []byte
+	expiresAt time.Time
 }
 
-func NewMemorySessionStore() *MemorySessionStore {
-	return &MemorySessionStore{}
+const memorySessionStoreGCInterval = 1 * time.Minute
+
+type MemorySessionStore struct {
+	store    sync.Map
+	stopChan chan struct{}
+}
+
+func NewMemorySessionStore(cleanupInterval time.Duration) *MemorySessionStore {
+	m := &MemorySessionStore{
+		stopChan: make(chan struct{}),
+	}
+	if cleanupInterval > 0 {
+		go m.gcLoop(cleanupInterval)
+	}
+	return m
 }
 
 func (m *MemorySessionStore) Get(ctx context.Context, key string) ([]byte, error) {
-	if value, ok := m.store.Load(key); ok {
-		return value.([]byte), nil
+	val, ok := m.store.Load(key)
+	if !ok {
+		return nil, ErrSessionNotFound
 	}
-	return nil, ErrSessionNotFound
+
+	it := val.(memorySessionStoreItem)
+	if time.Now().After(it.expiresAt) {
+		m.store.Delete(key)
+		return nil, ErrSessionNotFound
+	}
+
+	return it.value, nil
 }
 
-func (m *MemorySessionStore) Set(ctx context.Context, key string, value []byte) error {
-	m.store.Store(key, value)
+func (m *MemorySessionStore) Set(ctx context.Context, key string, value []byte, ttl time.Duration) error {
+	m.store.Store(key, memorySessionStoreItem{
+		value:     value,
+		expiresAt: time.Now().Add(ttl),
+	})
 	return nil
 }
 
 func (m *MemorySessionStore) Delete(ctx context.Context, key string) error {
 	m.store.Delete(key)
 	return nil
+}
+
+func (m *MemorySessionStore) Stop() {
+	close(m.stopChan)
+}
+
+func (m *MemorySessionStore) gcLoop(interval time.Duration) {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-m.stopChan:
+			return
+		case <-ticker.C:
+			m.cleanup()
+		}
+	}
+}
+
+func (m *MemorySessionStore) cleanup() {
+	now := time.Now()
+	m.store.Range(func(key, value any) bool {
+		item := value.(memorySessionStoreItem)
+		if now.After(item.expiresAt) {
+			m.store.Delete(key)
+		}
+		return true
+	})
 }
 
 type KeyBuilder interface {
@@ -59,14 +115,18 @@ func NewUserKeyBuilder() KeyBuilder {
 	return &UserKeyBuilder{}
 }
 
+const defaultSessionManagerTTL = 24 * time.Hour
+
 type SessionManager[T any] struct {
 	store      SessionStore
 	keyBuilder KeyBuilder
+	defaultTTL time.Duration
 }
 
 type SessionManagerOptions struct {
 	store      SessionStore
 	keyBuilder KeyBuilder
+	ttl        time.Duration
 }
 
 type SessionManagerOption func(*SessionManagerOptions)
@@ -83,10 +143,17 @@ func WithKeyBuilder(keyBuilder KeyBuilder) SessionManagerOption {
 	}
 }
 
+func WithTTL(ttl time.Duration) SessionManagerOption {
+	return func(options *SessionManagerOptions) {
+		options.ttl = ttl
+	}
+}
+
 func NewSessionManager[T any](options ...SessionManagerOption) *SessionManager[T] {
 	opts := SessionManagerOptions{
-		store:      NewMemorySessionStore(),
+		store:      NewMemorySessionStore(memorySessionStoreGCInterval),
 		keyBuilder: NewUserKeyBuilder(),
+		ttl:        defaultSessionManagerTTL,
 	}
 	for _, opt := range options {
 		opt(&opts)
@@ -94,6 +161,7 @@ func NewSessionManager[T any](options ...SessionManagerOption) *SessionManager[T
 	return &SessionManager[T]{
 		store:      opts.store,
 		keyBuilder: opts.keyBuilder,
+		defaultTTL: opts.ttl,
 	}
 }
 
@@ -126,12 +194,18 @@ func (s *SessionManager[T]) Middleware() Middleware {
 			}
 
 			val := ctx.Get(sessionKey{})
-			if val != nil {
-				data, err := json.Marshal(val)
-				if err != nil {
-					return fmt.Errorf("failed to marshal session: %w", err)
-				}
-				return s.store.Set(ctx.Ctx(), key, data)
+			if val == nil {
+				// Session was explicitly reset
+				return s.store.Delete(ctx.Ctx(), key)
+			}
+
+			newData, err := json.Marshal(val)
+			if err != nil {
+				return fmt.Errorf("failed to marshal session: %w", err)
+			}
+
+			if !bytes.Equal(newData, data) {
+				return s.store.Set(ctx.Ctx(), key, newData, s.defaultTTL)
 			}
 
 			return nil
@@ -139,10 +213,14 @@ func (s *SessionManager[T]) Middleware() Middleware {
 	}
 }
 
-func Session[T any](ctx *Context) *T {
+func GetSession[T any](ctx *Context) *T {
 	val := ctx.Get(sessionKey{})
 	if val == nil {
 		return new(T)
 	}
 	return val.(*T)
+}
+
+func ResetSession(ctx *Context) {
+	ctx.Set(sessionKey{}, nil)
 }
