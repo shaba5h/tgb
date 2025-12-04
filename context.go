@@ -140,3 +140,9 @@ func (c *Context) Answer(opts ...*bot.AnswerCallbackQueryParams) (bool, error) {
 
 	return c.bot.AnswerCallbackQuery(c.ctx, params)
 }
+func (c *Context) Scene() *SceneControl {
+	if val := c.Get(sceneControlKey{}); val != nil {
+		return val.(*SceneControl)
+	}
+	return nil
+}

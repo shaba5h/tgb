@@ -68,16 +68,23 @@ func (r *Router) On(filter Filter, handler Handler, middlewares ...Middleware) {
 func (r *Router) Handler(ctx context.Context, bot *bot.Bot, update *models.Update) {
 	c := NewContext(ctx, bot, update)
 
+	if err := r.Handle(c); err != nil {
+		if r.errorHandler != nil {
+			r.errorHandler(c, err)
+		}
+	}
+}
+
+func (r *Router) Handle(c *Context) error {
 	for _, route := range r.routes {
 		if route.filter(c) {
 			if err := route.handler(c); err != nil {
-				if r.errorHandler != nil {
-					r.errorHandler(c, err)
-				}
+				return err
 			}
-			return
+			return nil
 		}
 	}
+	return nil
 }
 
 func (r *Router) Sub(filter Filter, middlewares ...Middleware) *SubRouter {
