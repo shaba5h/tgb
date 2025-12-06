@@ -26,7 +26,7 @@ func newRoute(filter Filter, handler Handler) route {
 
 type Router struct {
 	routes       []route
-	middlewares  Middlewares
+	middlewares  MiddlewareChain
 	errorHandler ErrorHandler
 }
 
@@ -50,7 +50,7 @@ func NewRouter(options ...RouterOption) *Router {
 
 	return &Router{
 		routes:       make([]route, 0),
-		middlewares:  make(Middlewares, 0),
+		middlewares:  make(MiddlewareChain, 0),
 		errorHandler: opts.errorHandler,
 	}
 }
@@ -97,7 +97,7 @@ type SubRouter struct {
 	router *Router
 
 	filter      Filter
-	middlewares Middlewares
+	middlewares MiddlewareChain
 }
 
 func NewSubRouter(router *Router, filter Filter, middlewares ...Middleware) *SubRouter {
