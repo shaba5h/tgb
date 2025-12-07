@@ -2,9 +2,7 @@ package tgb
 
 import (
 	"fmt"
-	"log/slog"
 	"runtime/debug"
-	"time"
 )
 
 type Middleware func(next Handler) Handler
