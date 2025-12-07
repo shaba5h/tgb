@@ -2,10 +2,16 @@ package tgb
 
 import "strings"
 
-type Filter func(ctx *Context) bool
+type Filter[C ContextProvider] func(ctx C) bool
 
-func And(filters ...Filter) Filter {
-	return func(ctx *Context) bool {
+type Filters[C ContextProvider] struct{}
+
+func NewFilters[C ContextProvider]() Filters[C] {
+	return Filters[C]{}
+}
+
+func (f Filters[C]) And(filters ...Filter[C]) Filter[C] {
+	return func(ctx C) bool {
 		for _, filter := range filters {
 			if !filter(ctx) {
 				return false
@@ -15,8 +21,8 @@ func And(filters ...Filter) Filter {
 	}
 }
 
-func Or(filters ...Filter) Filter {
-	return func(ctx *Context) bool {
+func (f Filters[C]) Or(filters ...Filter[C]) Filter[C] {
+	return func(ctx C) bool {
 		for _, filter := range filters {
 			if filter(ctx) {
 				return true
@@ -26,54 +32,54 @@ func Or(filters ...Filter) Filter {
 	}
 }
 
-func Not(filter Filter) Filter {
-	return func(ctx *Context) bool {
+func (f Filters[C]) Not(filter Filter[C]) Filter[C] {
+	return func(ctx C) bool {
 		return !filter(ctx)
 	}
 }
 
-func Message() Filter {
-	return func(ctx *Context) bool {
+func (f Filters[C]) Message() Filter[C] {
+	return func(ctx C) bool {
 		return ctx.Message() != nil
 	}
 }
 
-func Text(text string) Filter {
-	return And(
-		Message(),
-		func(ctx *Context) bool {
+func (f Filters[C]) Text(text string) Filter[C] {
+	return f.And(
+		f.Message(),
+		func(ctx C) bool {
 			return ctx.Message().Text == text
 		},
 	)
 }
 
-func TextContains(text string) Filter {
-	return And(
-		Message(),
-		func(ctx *Context) bool {
+func (f Filters[C]) TextContains(text string) Filter[C] {
+	return f.And(
+		f.Message(),
+		func(ctx C) bool {
 			return strings.Contains(ctx.Message().Text, text)
 		},
 	)
 }
 
-func TextStartsWith(text string) Filter {
-	return And(
-		Message(),
-		func(ctx *Context) bool {
+func (f Filters[C]) TextStartsWith(text string) Filter[C] {
+	return f.And(
+		f.Message(),
+		func(ctx C) bool {
 			return strings.HasPrefix(ctx.Message().Text, text)
 		},
 	)
 }
 
-func Command(command string) Filter {
-	return And(
-		Message(),
-		TextStartsWith("/"+command),
+func (f Filters[C]) Command(command string) Filter[C] {
+	return f.And(
+		f.Message(),
+		f.TextStartsWith("/"+command),
 	)
 }
 
-func CallbackQuery() Filter {
-	return func(ctx *Context) bool {
+func (f Filters[C]) CallbackQuery() Filter[C] {
+	return func(ctx C) bool {
 		return ctx.CallbackQuery() != nil
 	}
 }

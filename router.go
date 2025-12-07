@@ -8,65 +8,67 @@ import (
 	"github.com/go-telegram/bot/models"
 )
 
-type Handler func(ctx *Context) error
+type Handler[C ContextProvider] func(ctx C) error
 
-type ErrorHandler func(ctx *Context, err error)
+type ErrorHandler[C ContextProvider] func(ctx C, err error)
 
-type route struct {
-	filter  Filter
-	handler Handler
+type route[C ContextProvider] struct {
+	filter  Filter[C]
+	handler Handler[C]
 }
 
-func newRoute(filter Filter, handler Handler) route {
-	return route{
+func newRoute[C ContextProvider](filter Filter[C], handler Handler[C]) route[C] {
+	return route[C]{
 		filter:  filter,
 		handler: handler,
 	}
 }
 
-type Router struct {
-	routes       []route
-	middlewares  MiddlewareChain
-	errorHandler ErrorHandler
+type Router[C ContextProvider] struct {
+	routes       []route[C]
+	middlewares  MiddlewareChain[C]
+	errorHandler ErrorHandler[C]
+	ctxFactory   ContextFactory[C]
 }
 
-type RouterOptions struct {
-	errorHandler ErrorHandler
+type RouterOptions[C ContextProvider] struct {
+	errorHandler ErrorHandler[C]
 }
-type RouterOption func(*RouterOptions)
+type RouterOption[C ContextProvider] func(*RouterOptions[C])
 
-func WithErrorHandler(handler ErrorHandler) RouterOption {
-	return func(r *RouterOptions) {
+func WithErrorHandler[C ContextProvider](handler ErrorHandler[C]) RouterOption[C] {
+	return func(r *RouterOptions[C]) {
 		r.errorHandler = handler
 	}
 }
 
-func NewRouter(options ...RouterOption) *Router {
-	opts := &RouterOptions{}
+func NewRouter[C ContextProvider](factory ContextFactory[C], options ...RouterOption[C]) *Router[C] {
+	opts := &RouterOptions[C]{}
 
 	for _, option := range options {
 		option(opts)
 	}
 
-	return &Router{
-		routes:       make([]route, 0),
-		middlewares:  make(MiddlewareChain, 0),
+	return &Router[C]{
+		routes:       make([]route[C], 0),
+		middlewares:  make(MiddlewareChain[C], 0),
+		ctxFactory:   factory,
 		errorHandler: opts.errorHandler,
 	}
 }
 
-func (r *Router) Use(middlewares ...Middleware) {
+func (r *Router[C]) Use(middlewares ...Middleware[C]) {
 	r.middlewares = slices.Concat(r.middlewares, middlewares)
 }
 
-func (r *Router) On(filter Filter, handler Handler, middlewares ...Middleware) {
+func (r *Router[C]) On(filter Filter[C], handler Handler[C], middlewares ...Middleware[C]) {
 	mw := slices.Concat(r.middlewares, middlewares)
 
 	r.routes = append(r.routes, newRoute(filter, mw.Apply(handler)))
 }
 
-func (r *Router) Handler(ctx context.Context, bot *bot.Bot, update *models.Update) {
-	c := NewContext(ctx, bot, update)
+func (r *Router[C]) Handler(ctx context.Context, bot *bot.Bot, update *models.Update) {
+	c := r.ctxFactory(ctx, bot, update)
 
 	if err := r.Handle(c); err != nil {
 		if r.errorHandler != nil {
@@ -75,7 +77,7 @@ func (r *Router) Handler(ctx context.Context, bot *bot.Bot, update *models.Updat
 	}
 }
 
-func (r *Router) Handle(c *Context) error {
+func (r *Router[C]) Handle(c C) error {
 	for _, route := range r.routes {
 		if route.filter(c) {
 			if err := route.handler(c); err != nil {
@@ -87,40 +89,40 @@ func (r *Router) Handle(c *Context) error {
 	return nil
 }
 
-func (r *Router) Sub(filter Filter, middlewares ...Middleware) *SubRouter {
+func (r *Router[C]) Sub(filter Filter[C], middlewares ...Middleware[C]) *SubRouter[C] {
 	mw := slices.Concat(r.middlewares, middlewares)
 
 	return NewSubRouter(r, filter, mw...)
 }
 
-type SubRouter struct {
-	router *Router
+type SubRouter[C ContextProvider] struct {
+	router *Router[C]
 
-	filter      Filter
-	middlewares MiddlewareChain
+	filter      Filter[C]
+	middlewares MiddlewareChain[C]
 }
 
-func NewSubRouter(router *Router, filter Filter, middlewares ...Middleware) *SubRouter {
-	return &SubRouter{
+func NewSubRouter[C ContextProvider](router *Router[C], filter Filter[C], middlewares ...Middleware[C]) *SubRouter[C] {
+	return &SubRouter[C]{
 		router:      router,
 		filter:      filter,
 		middlewares: middlewares,
 	}
 }
 
-func (s *SubRouter) Use(middlewares ...Middleware) {
+func (s *SubRouter[C]) Use(middlewares ...Middleware[C]) {
 	s.middlewares = slices.Concat(s.middlewares, middlewares)
 }
 
-func (s *SubRouter) On(filter Filter, handler Handler, middlewares ...Middleware) {
-	f := And(s.filter, filter)
+func (s *SubRouter[C]) On(filter Filter[C], handler Handler[C], middlewares ...Middleware[C]) {
+	f := Filters[C]{}.And(s.filter, filter)
 	mw := slices.Concat(s.middlewares, middlewares)
 
 	s.router.routes = append(s.router.routes, newRoute(f, mw.Apply(handler)))
 }
 
-func (s *SubRouter) Sub(filter Filter, middlewares ...Middleware) *SubRouter {
-	f := And(s.filter, filter)
+func (s *SubRouter[C]) Sub(filter Filter[C], middlewares ...Middleware[C]) *SubRouter[C] {
+	f := Filters[C]{}.And(s.filter, filter)
 	mw := slices.Concat(s.middlewares, middlewares)
 
 	return NewSubRouter(s.router, f, mw...)

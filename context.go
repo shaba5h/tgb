@@ -8,41 +8,45 @@ import (
 	"github.com/go-telegram/bot/models"
 )
 
-type Context struct {
+type ContextProvider interface {
+	Context() context.Context
+	Bot() *bot.Bot
+	Update() *models.Update
+	Message() *models.Message
+	CallbackQuery() *models.CallbackQuery
+	User() *models.User
+	Chat() *models.Chat
+}
+
+type ContextFactory[C ContextProvider] func(ctx context.Context, bot *bot.Bot, update *models.Update) C
+
+type BaseContext struct {
 	ctx    context.Context
 	bot    *bot.Bot
 	update *models.Update
 }
 
-func NewContext(ctx context.Context, bot *bot.Bot, update *models.Update) *Context {
-	return &Context{
+func NewBaseContext(ctx context.Context, bot *bot.Bot, update *models.Update) *BaseContext {
+	return &BaseContext{
 		ctx:    ctx,
 		bot:    bot,
 		update: update,
 	}
 }
 
-func (c *Context) Ctx() context.Context {
+func (c *BaseContext) Context() context.Context {
 	return c.ctx
 }
 
-func (c *Context) Set(key any, value any) {
-	c.ctx = context.WithValue(c.ctx, key, value)
-}
-
-func (c *Context) Get(key any) any {
-	return c.ctx.Value(key)
-}
-
-func (c *Context) Bot() *bot.Bot {
+func (c *BaseContext) Bot() *bot.Bot {
 	return c.bot
 }
 
-func (c *Context) Update() *models.Update {
+func (c *BaseContext) Update() *models.Update {
 	return c.update
 }
 
-func (c *Context) Message() *models.Message {
+func (c *BaseContext) Message() *models.Message {
 	switch {
 	case c.update.Message != nil:
 		return c.update.Message
@@ -50,21 +54,21 @@ func (c *Context) Message() *models.Message {
 	return nil
 }
 
-func (c *Context) CallbackQuery() *models.CallbackQuery {
+func (c *BaseContext) CallbackQuery() *models.CallbackQuery {
 	if c.update.CallbackQuery != nil {
 		return c.update.CallbackQuery
 	}
 	return nil
 }
 
-func (c *Context) Chat() *models.Chat {
+func (c *BaseContext) Chat() *models.Chat {
 	if c.Message() != nil {
 		return &c.Message().Chat
 	}
 	return nil
 }
 
-func (c *Context) User() *models.User {
+func (c *BaseContext) User() *models.User {
 	switch {
 	case c.Message() != nil:
 		return c.Message().From
@@ -74,7 +78,7 @@ func (c *Context) User() *models.User {
 	return nil
 }
 
-func (c *Context) Send(text string, opts ...*bot.SendMessageParams) (*models.Message, error) {
+func (c *BaseContext) Send(text string, opts ...*bot.SendMessageParams) (*models.Message, error) {
 	var params *bot.SendMessageParams
 	if len(opts) > 0 && opts[0] != nil {
 		params = opts[0]
@@ -95,7 +99,7 @@ func (c *Context) Send(text string, opts ...*bot.SendMessageParams) (*models.Mes
 	return c.bot.SendMessage(c.ctx, params)
 }
 
-func (c *Context) Reply(text string, opts ...*bot.SendMessageParams) (*models.Message, error) {
+func (c *BaseContext) Reply(text string, opts ...*bot.SendMessageParams) (*models.Message, error) {
 	var params *bot.SendMessageParams
 	if len(opts) > 0 && opts[0] != nil {
 		params = opts[0]
@@ -122,7 +126,7 @@ func (c *Context) Reply(text string, opts ...*bot.SendMessageParams) (*models.Me
 	return c.bot.SendMessage(c.ctx, params)
 }
 
-func (c *Context) Answer(opts ...*bot.AnswerCallbackQueryParams) (bool, error) {
+func (c *BaseContext) Answer(opts ...*bot.AnswerCallbackQueryParams) (bool, error) {
 	var params *bot.AnswerCallbackQueryParams
 	if len(opts) > 0 && opts[0] != nil {
 		params = opts[0]
@@ -139,10 +143,4 @@ func (c *Context) Answer(opts ...*bot.AnswerCallbackQueryParams) (bool, error) {
 	}
 
 	return c.bot.AnswerCallbackQuery(c.ctx, params)
-}
-func (c *Context) Scene() *SceneControl {
-	if val := c.Get(sceneControlKey{}); val != nil {
-		return val.(*SceneControl)
-	}
-	return nil
 }
